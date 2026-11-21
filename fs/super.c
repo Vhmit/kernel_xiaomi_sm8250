@@ -37,8 +37,16 @@
 #include <linux/lockdep.h>
 #include <linux/user_namespace.h>
 #include <linux/fs_context.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#include <linux/jump_label.h>
+#endif // #ifdef CONFIG_KSU_SUSFS
 #include "internal.h"
 
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern bool susfs_is_current_ksu_domain(void);
+extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 static int thaw_super_locked(struct super_block *sb);
 
 static LIST_HEAD(super_blocks);
@@ -1114,12 +1122,18 @@ static DEFINE_IDA(unnamed_dev_ida);
 int get_anon_bdev(dev_t *p)
 {
 	int dev;
+	int min_id = 1;
 
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted) &&
+	    susfs_is_current_ksu_domain())
+		min_id = DEFAULT_KSU_MNT_MINOR_DEV;
+#endif
 	/*
 	 * Many userspace utilities consider an FSID of 0 invalid.
 	 * Always return at least 1 from get_anon_bdev.
 	 */
-	dev = ida_alloc_range(&unnamed_dev_ida, 1, (1 << MINORBITS) - 1,
+	dev = ida_alloc_range(&unnamed_dev_ida, min_id, (1 << MINORBITS) - 1,
 			GFP_ATOMIC);
 	if (dev == -ENOSPC)
 		dev = -EMFILE;
